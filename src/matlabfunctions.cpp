@@ -154,10 +154,24 @@ void histc(const double *x, int x_length, const double *edges,
   for (i++; i < edges_length; ++i) index[i] = count;
 }
 
-void interp1(const double *x, const double *y, int x_length, const double *xi,
-    int xi_length, double *yi) {
+// from header
+//-----------------------------------------------------------------------------
+// Interpolates to find yi, the values of the underlying function Y at the points in the vector or array xi. x must be a vector.
+// http://www.mathworks.co.jp/help/techdoc/ref/interp1.html
+//
+// Input:
+//   x          : Input vector (Time axis)
+//   y          : Values at x[n]
+//   x_length   : Length of x (Length of y must be the same)
+//   xi         : Required vector
+//   xi_length  : Length of xi (Length of yi must be the same)
+//
+// Output:
+//   yi         : Interpolated vector
+//-----------------------------------------------------------------------------
+void interp1(const double *x, const double *y, int x_length, const double *xi, int xi_length, double *yi) {
   double *h = new double[x_length - 1];
-  int *k = new int[xi_length];
+  int    *k = new    int[xi_length];
 
   for (int i = 0; i < x_length - 1; ++i) h[i] = x[i + 1] - x[i];
   for (int i = 0; i < xi_length; ++i) {
@@ -170,7 +184,8 @@ void interp1(const double *x, const double *y, int x_length, const double *xi,
     double s = (xi[i] - x[k[i] - 1]) / h[k[i] - 1];
     yi[i] = y[k[i] - 1] + s * (y[k[i]] - y[k[i] - 1]);
   }
-  
+
+  // Clean up 
   delete[] k;
   delete[] h;
 }

@@ -56,6 +56,7 @@ DWORD timeGetTime() {
 }
 #endif
 
+// 5.0 [msec]
 #define DEFAULT_FRAME_PERIOD 5.0
 
 //-----------------------------------------------------------------------------

@@ -124,10 +124,9 @@ void NuttallWindow(int y_length, double *y) {
 // FFT, IFFT and minimum phase analysis
 void InitializeForwardRealFFT(int fft_size, ForwardRealFFT *forward_real_fft) {
   forward_real_fft->fft_size = fft_size;
-  forward_real_fft->waveform = new double[fft_size];
+  forward_real_fft->waveform = new      double[fft_size];
   forward_real_fft->spectrum = new fft_complex[fft_size];
-  forward_real_fft->forward_fft = fft_plan_dft_r2c_1d(fft_size,
-      forward_real_fft->waveform, forward_real_fft->spectrum, FFT_ESTIMATE);
+  forward_real_fft->forward_fft = fft_plan_dft_r2c_1d(fft_size, forward_real_fft->waveform, forward_real_fft->spectrum, FFT_ESTIMATE);
 }
 
 void DestroyForwardRealFFT(ForwardRealFFT *forward_real_fft) {
@@ -138,10 +137,9 @@ void DestroyForwardRealFFT(ForwardRealFFT *forward_real_fft) {
 
 void InitializeInverseRealFFT(int fft_size, InverseRealFFT *inverse_real_fft) {
   inverse_real_fft->fft_size = fft_size;
-  inverse_real_fft->waveform = new double[fft_size];
+  inverse_real_fft->waveform = new     double[fft_size];
   inverse_real_fft->spectrum = new fft_complex[fft_size];
-  inverse_real_fft->inverse_fft = fft_plan_dft_c2r_1d(fft_size,
-      inverse_real_fft->spectrum, inverse_real_fft->waveform, FFT_ESTIMATE);
+  inverse_real_fft->inverse_fft = fft_plan_dft_c2r_1d(fft_size, inverse_real_fft->spectrum, inverse_real_fft->waveform, FFT_ESTIMATE);
 }
 
 void DestroyInverseRealFFT(InverseRealFFT *inverse_real_fft) {
@@ -166,29 +164,22 @@ void DestroyInverseComplexFFT(InverseComplexFFT *inverse_complex_fft) {
   delete[] inverse_complex_fft->output;
 }
 
-void InitializeMinimumPhaseAnalysis(int fft_size,
-    MinimumPhaseAnalysis *minimum_phase) {
+void InitializeMinimumPhaseAnalysis(int fft_size, MinimumPhaseAnalysis *minimum_phase) {
   minimum_phase->fft_size = fft_size;
-  minimum_phase->log_spectrum = new double[fft_size];
+  minimum_phase->log_spectrum           = new      double[fft_size];
   minimum_phase->minimum_phase_spectrum = new fft_complex[fft_size];
-  minimum_phase->cepstrum = new fft_complex[fft_size];
-  minimum_phase->inverse_fft = fft_plan_dft_r2c_1d(fft_size,
-      minimum_phase->log_spectrum, minimum_phase->cepstrum, FFT_ESTIMATE);
-  minimum_phase->forward_fft = fft_plan_dft_1d(fft_size,
-      minimum_phase->cepstrum, minimum_phase->minimum_phase_spectrum,
-      FFT_FORWARD, FFT_ESTIMATE);
+  minimum_phase->cepstrum               = new fft_complex[fft_size];
+  minimum_phase->inverse_fft = fft_plan_dft_r2c_1d(fft_size, minimum_phase->log_spectrum, minimum_phase->cepstrum, FFT_ESTIMATE);
+  minimum_phase->forward_fft = fft_plan_dft_1d(fft_size, minimum_phase->cepstrum, minimum_phase->minimum_phase_spectrum, FFT_FORWARD, FFT_ESTIMATE);
 }
 
 void GetMinimumPhaseSpectrum(const MinimumPhaseAnalysis *minimum_phase) {
   // Mirroring
-  for (int i = minimum_phase->fft_size / 2 + 1;
-      i < minimum_phase->fft_size; ++i)
-    minimum_phase->log_spectrum[i] =
-    minimum_phase->log_spectrum[minimum_phase->fft_size - i];
+  for (int i = minimum_phase->fft_size / 2 + 1; i < minimum_phase->fft_size; ++i)
+    minimum_phase->log_spectrum[i] = minimum_phase->log_spectrum[minimum_phase->fft_size - i];
 
   // This fft_plan carries out "forward" FFT.
-  // To carriy out the Inverse FFT, the sign of imaginary part
-  // is inverted after FFT.
+  // To carriy out the Inverse FFT, the sign of imaginary part is inverted after FFT.
   fft_execute(minimum_phase->inverse_fft);
   minimum_phase->cepstrum[0][1] *= -1.0;
   for (int i = 1; i < minimum_phase->fft_size / 2; ++i) {
@@ -196,8 +187,7 @@ void GetMinimumPhaseSpectrum(const MinimumPhaseAnalysis *minimum_phase) {
     minimum_phase->cepstrum[i][1] *= -2.0;
   }
   minimum_phase->cepstrum[minimum_phase->fft_size / 2][1] *= -1.0;
-  for (int i = minimum_phase->fft_size / 2 + 1;
-      i < minimum_phase->fft_size; ++i) {
+  for (int i = minimum_phase->fft_size / 2 + 1; i < minimum_phase->fft_size; ++i) {
     minimum_phase->cepstrum[i][0] = 0.0;
     minimum_phase->cepstrum[i][1] = 0.0;
   }
@@ -208,14 +198,9 @@ void GetMinimumPhaseSpectrum(const MinimumPhaseAnalysis *minimum_phase) {
   // Note: This FFT library does not keep the aliasing.
   double tmp;
   for (int i = 0; i <= minimum_phase->fft_size / 2; ++i) {
-    tmp = exp(minimum_phase->minimum_phase_spectrum[i][0] /
-      minimum_phase->fft_size);
-    minimum_phase->minimum_phase_spectrum[i][0] = tmp *
-      cos(minimum_phase->minimum_phase_spectrum[i][1] /
-      minimum_phase->fft_size);
-    minimum_phase->minimum_phase_spectrum[i][1] = tmp *
-      sin(minimum_phase->minimum_phase_spectrum[i][1] /
-      minimum_phase->fft_size);
+    tmp = exp(minimum_phase->minimum_phase_spectrum[i][0] / minimum_phase->fft_size);
+    minimum_phase->minimum_phase_spectrum[i][0] = tmp * cos(minimum_phase->minimum_phase_spectrum[i][1] / minimum_phase->fft_size);
+    minimum_phase->minimum_phase_spectrum[i][1] = tmp * sin(minimum_phase->minimum_phase_spectrum[i][1] / minimum_phase->fft_size);
   }
 }
 
