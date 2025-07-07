@@ -6,7 +6,7 @@ It can estimate Fundamental frequency (F0), aperiodicity and spectral envelope a
 This source code is released under the modified-BSD license.
 There is no patent in all algorithms in WORLD.
 
-## Introduction of WORLD family (2020/03/27)
+## Introduction of WORLD family (2025/02/21)
 
 I introduce useful software in WORLD. If you want to introduce your project in WORLD, please contact me.
 
@@ -23,6 +23,24 @@ World.NET (https://github.com/aqtq314/World.NET) is a C# Wrapper for World Vocod
 WorldInApple (https://github.com/fuziki/WorldInApple) is a Swift wrapper for World Vocoder.
 
 DotnetWorld (https://github.com/yamachu/DotnetWorld) is a C# wrapper for WORLD.
+
+JA-WORLD (https://gitlab.com/f-matano44/world-for-java) is an independent Java port of WORLD vocoder.
+
+The Speech Signal Processing Toolkit ([SPTK](https://github.com/sp-nitech/SPTK)) wraps WORLD as UNIX-like commands.
+- DIO and Harvest -> `pitch`
+  - https://sp-nitech.github.io/sptk/4.3/main/pitch.html
+- D4C -> `ap`
+  - https://sp-nitech.github.io/sptk/4.3/main/ap.html
+- CheapTrick -> `pitch_spec`
+  - https://sp-nitech.github.io/sptk/4.3/main/pitch_spec.html
+- Synthesis -> `world_synth`
+  - https://sp-nitech.github.io/sptk/4.3/main/world_synth.html
+
+[diffsptk](https://github.com/sp-nitech/diffsptk) implements some of the WORLD components within the PyTorch framework.
+- D4C -> `Aperiodicity`
+  - https://sp-nitech.github.io/diffsptk/2.5.0/modules/ap.html
+- CheapTrick -> `PitchAdaptiveSpectralAnalysis`
+  - https://sp-nitech.github.io/diffsptk/2.5.0/modules/pitch_spec.html
 
 Note: To avoid making the project complicated, I decided not to merge it to my repository and introduce your project here. The other reason is that I can't support some computer languages.
 
@@ -41,7 +59,7 @@ In DIO, you can refer the following reference.
 [6] M. Morise, H. Kawahara and H. Katayose: Fast and reliable F0 estimation method based on the period extraction of vocal fold vibration of singing voice and speech, AES 35th International Conference, CD-ROM Proceeding, Feb. 2009.
 
 In Harvest, you can refer the following reference.  
-[7] M. Morise: Harvest: A high-performance fundamental frequency estimator from speech signals, in Proc. INTERSPEECH 2017, pp. 2321–2325, 2017. http://www.isca-speech.org/archive/Interspeech_2017/abstracts/0068.html
+[7] M. Morise: Harvest: A high-performance fundamental frequency estimator from speech signals, in Proc. INTERSPEECH 2017, pp. 2321–2325, 2017. https://www.isca-archive.org/interspeech_2017/morise17b_interspeech.html
 
 In the codec of spectral envelope, you can refer the following reference.  
 [8] M. Morise, G. Miyashita and K. Ozawa: Low-dimensional representation of spectral envelope without deterioration for full-band speech analysis/synthesis system, in Proc. INTERSPEECH 2017, pp. 409-413, 2017. http://www.isca-speech.org/archive/Interspeech_2017/abstracts/0067.html

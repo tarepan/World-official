@@ -25,14 +25,15 @@ namespace {
 //   fft_size         - Filter FFT size for zero padding
 //   forward_real_fft - Output, time-domain and frequency-domain noise signal
 //-----------------------------------------------------------------------------
-static void GetNoiseSpectrum(int noise_size, int fft_size, const ForwardRealFFT *forward_real_fft) {
+static void GetNoiseSpectrum(int noise_size, int fft_size,
+    const ForwardRealFFT *forward_real_fft, RandnState *randn_state) {
   // Waveform synthesis
   //// waveform - Random series
   //// average  - Amplitude average of waveform
   double average = 0.0;
   for (int i = 0; i < noise_size; ++i) {
     // per sample
-    forward_real_fft->waveform[i] = randn();
+    forward_real_fft->waveform[i] = randn(randn_state);
     average += forward_real_fft->waveform[i];
   }
   average /= noise_size;
@@ -61,10 +62,10 @@ static void GetAperiodicResponse(int noise_size, int fft_size,
     const double *spectrum, const double *aperiodic_ratio, double current_vuv,
     const ForwardRealFFT *forward_real_fft,
     const InverseRealFFT *inverse_real_fft,
-    const MinimumPhaseAnalysis *minimum_phase, double *aperiodic_response) {
-
+    const MinimumPhaseAnalysis *minimum_phase, double *aperiodic_response,
+    RandnState *randn_state) {
   // Generate noise series with frequency-domain representation
-  GetNoiseSpectrum(noise_size, fft_size, forward_real_fft);
+  GetNoiseSpectrum(noise_size, fft_size, forward_real_fft, randn_state);
 
   // |H(ω)| to minimum phase H(ω)
   if (current_vuv != 0.0)
@@ -221,7 +222,7 @@ static void GetOneFrameSegment(double current_vuv, int noise_size,
     const ForwardRealFFT *forward_real_fft,
     const InverseRealFFT *inverse_real_fft,
     const MinimumPhaseAnalysis *minimum_phase, const double *dc_remover,
-    double *response) {
+    double *response, RandnState* randn_state) {
 
   // Initialization
   double *aperiodic_response = new double[fft_size];
@@ -238,11 +239,10 @@ static void GetOneFrameSegment(double current_vuv, int noise_size,
                         inverse_real_fft, minimum_phase,
       dc_remover, fractional_time_shift, fs, periodic_response);
 
-  // Synthesis of aperiodic component signal
-  GetAperiodicResponse(noise_size,
-      fft_size, spectral_envelope, aperiodic_ratio, current_vuv,
-      forward_real_fft, inverse_real_fft, minimum_phase,
-                                             aperiodic_response);
+  // Synthesis of the aperiodic response
+  GetAperiodicResponse(noise_size, fft_size, spectral_envelope,
+      aperiodic_ratio, current_vuv, forward_real_fft,
+      inverse_real_fft, minimum_phase, aperiodic_response, randn_state);
 
   double sqrt_noise_size = sqrt(static_cast<double>(noise_size));
   for (int i = 0; i < fft_size; ++i)
@@ -437,7 +437,8 @@ static void GetDCRemover(int fft_size, double *dc_remover) {
 void Synthesis(const double *f0, int f0_length,
     const double * const *spectrogram, const double * const *aperiodicity,
     int fft_size, double frame_period, int fs, int y_length, double *y) {
-  randn_reseed();
+  RandnState randn_state = {};
+  randn_reseed(&randn_state);
 
   // Initialization
   double *impulse_response = new double[fft_size];
@@ -471,10 +472,10 @@ void Synthesis(const double *f0, int f0_length,
         spectrogram, fft_size, aperiodicity, f0_length, frame_period,
         pulse_locations[i], pulse_locations_time_shift[i], fs,
         &forward_real_fft, &inverse_real_fft, &minimum_phase, dc_remover,
-        impulse_response);
     // Waveform synthesis by PSOLA
     //// In middle region, add impulse_response (len==fft_size) around the pulse position
     //// In head/tail region, use only needed length
+        impulse_response, &randn_state);
     offset = pulse_locations_index[i] - fft_size / 2 + 1;
     lower_limit = MyMaxInt(0, -offset); // >=0
     upper_limit = MyMinInt(fft_size, y_length - offset); // <=fft_size
