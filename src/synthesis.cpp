@@ -17,22 +17,19 @@
 namespace {
 
 
-//-----------------------------------------------------------------------------
-// Synthesize noise series as frequency-domain representation.
-//
-// Args:
-//   noise_size       - Length of noise series
-//   fft_size         - Filter FFT size for zero padding
-//   forward_real_fft - Output, time-domain and frequency-domain noise signal
-//-----------------------------------------------------------------------------
+/**
+ * Synthesize a white noise as frequency-domain representation.
+ *
+ * @param noise_size       - Length [sample] of noise
+ * @param fft_size         - Filter FFT size
+ * @param forward_real_fft - Output, FFT container containing the noise
+ * @param randn_state      - Random state
+ */
 static void GetNoiseSpectrum(int noise_size, int fft_size,
     const ForwardRealFFT *forward_real_fft, RandnState *randn_state) {
-  // Waveform synthesis
-  //// waveform - Random series
-  //// average  - Amplitude average of waveform
+  // Generate white noise with uint random number
   double average = 0.0;
   for (int i = 0; i < noise_size; ++i) {
-    // per sample
     forward_real_fft->waveform[i] = randn(randn_state);
     average += forward_real_fft->waveform[i];
   }
@@ -51,20 +48,27 @@ static void GetNoiseSpectrum(int noise_size, int fft_size,
 }
 
 
-//-----------------------------------------------------------------------------
-// Synthesize an aperiodic component (colored noise series).
-//
-// Args:
-//   forward_real_fft -  FFT container
-//   inverse_real_fft - iFFT container
-//-----------------------------------------------------------------------------
+/**
+ * Synthesize an aperiodic component (colored noise series).
+ *
+ * noise_size
+ * fft_size
+ * @param spectrum         :: (L=fft_size,) - 
+ * aperiodic_ratio
+ * current_vuv
+ * @param forward_real_fft                   -  FFT container
+ * @param inverse_real_fft                   - iFFT container
+ * minimum_phase
+ * @param aperiodic_response :: (T=fft_size) - Output, 
+ * @param randn_state                        - Random state
+ */
 static void GetAperiodicResponse(int noise_size, int fft_size,
     const double *spectrum, const double *aperiodic_ratio, double current_vuv,
     const ForwardRealFFT *forward_real_fft,
     const InverseRealFFT *inverse_real_fft,
     const MinimumPhaseAnalysis *minimum_phase, double *aperiodic_response,
     RandnState *randn_state) {
-  // Generate noise series with frequency-domain representation
+  // Generate a white noise spectrum
   GetNoiseSpectrum(noise_size, fft_size, forward_real_fft, randn_state);
 
   // |H(ω)| to minimum phase H(ω)
@@ -120,21 +124,20 @@ static void GetSpectrumWithFractionalTimeShift(int fft_size,
   }
 }
 
-//-----------------------------------------------------------------------------
-// Calculates a finite impulse respose for periodic component.
-//
-// Args:
-//   fft_size
-//   spectrum
-//   aperiodic_ratio
-//   current_vuv
-//   inverse_real_fft
-//   minimum_phase
-//   dc_remover
-//   fractional_time_shift
-//   fs
-//   periodic_response
-//-----------------------------------------------------------------------------
+/**
+ * Generate waveform segment (= impulse response) of periodic component.
+ *
+ * @param fft_size                               - FFT size, equal to the length of waveform fragment
+ * @param spectrum              :: (F=fft_size,)
+ * @param aperiodic_ratio       :: (F=fft_size,) - Aperiodity spectrum at pulse position
+ * @param current_vuv                            - Voice/UnVoice ratio of this waveform segment
+ * @param inverse_real_fft
+ * @param minimum_phase
+ * @param dc_remover
+ * @param fractional_time_shift
+ * @param fs                                     - Sampling rate
+ * @param periodic_response     :: (T=fft_size,) - Output waveform segment, size is defined by caller
+ */
 static void GetPeriodicResponse(int fft_size, const double *spectrum, const double *aperiodic_ratio, double current_vuv, const InverseRealFFT *inverse_real_fft,
     const MinimumPhaseAnalysis *minimum_phase, const double *dc_remover, double fractional_time_shift, int fs, double *periodic_response) {
 
@@ -153,16 +156,23 @@ static void GetPeriodicResponse(int fft_size, const double *spectrum, const doub
     inverse_real_fft->spectrum[i][1] = minimum_phase->minimum_phase_spectrum[i][1];
   }
 
-  // apply fractional time delay of fractional_time_shift seconds using linear phase shift
+  // apply fractional time delay of `fractional_time_shift` seconds using linear phase shift
   double coefficient = 2.0 * world::kPi * fractional_time_shift * fs / fft_size;
   GetSpectrumWithFractionalTimeShift(fft_size, coefficient, inverse_real_fft);
 
+  // Generate waveform segment
   fft_execute(inverse_real_fft->inverse_fft);
   fftshift(inverse_real_fft->waveform, fft_size, periodic_response);
   RemoveDCComponent(periodic_response, fft_size, dc_remover, periodic_response);
 }
 
 
+/**
+ * 
+ * @param spectrogram :: (L, F=1+fft_size//2) -
+ * @param fft_size                            - FFT size of `spectrogram`
+ * @param spectral_envelope :: (L=fft_size,)  - Output, 
+ */
 static void GetSpectralEnvelope(double current_time, double frame_period, int f0_length, const double * const *spectrogram, int fft_size, double *spectral_envelope) {
   int current_frame_floor = MyMinInt(f0_length - 1, static_cast<int>(floor(current_time / frame_period)));
   int current_frame_ceil  = MyMinInt(f0_length - 1, static_cast<int>( ceil(current_time / frame_period)));
@@ -177,13 +187,25 @@ static void GetSpectralEnvelope(double current_time, double frame_period, int f0
 }
 
 
+/**
+ * Calculate aperiodicity spectrum at pulse position.
+ *
+ * @param current_time                        - Coarse time [sec] of frame's pulse
+ * @param frame_period                        - Period [sec] of the frame
+ * @param f0_length                           - Length of frame fo contour
+ * @param aperiodicity       :: (L, F=)       - Aperiodicity series
+ * @param fft_size                            - FFT size
+ * @param aperiodic_spectrum :: (F=fft_size,) - Output, aperiodicity spectrum at pulse position
+ */
 static void GetAperiodicRatio(double current_time, double frame_period,
     int f0_length, const double * const *aperiodicity, int fft_size,
     double *aperiodic_spectrum) {
+  // Frame numbers
   int current_frame_floor = MyMinInt(f0_length - 1, static_cast<int>(floor(current_time / frame_period)));
   int current_frame_ceil  = MyMinInt(f0_length - 1, static_cast<int>( ceil(current_time / frame_period)));
-  double interpolation = current_time / frame_period - current_frame_floor;
 
+  // Interpolate aperiodic spectrums in time
+  double interpolation = current_time / frame_period - current_frame_floor;
   if (current_frame_floor == current_frame_ceil)
     for (int i = 0; i <= fft_size / 2; ++i)
       aperiodic_spectrum[i] = pow(GetSafeAperiodicity(aperiodicity[current_frame_floor][i]), 2.0);
@@ -195,26 +217,26 @@ static void GetAperiodicRatio(double current_time, double frame_period,
 }
 
 
-//-----------------------------------------------------------------------------
-// Calculates a periodic and aperiodic response at a time.
-//
-// Args:
-//   current_vuv
+/**
+ * Calculates a periodic and aperiodic response at a time.
+ *
+ * @param current_vuv                            - VUV flag of the frame
 //   noise_size
 //   spectrogram
-//   fft_size,
+//   fft_size                - Equal to segment length
 //   aperiodicity
-//   f0_length
+//   f0_length                                  
 //   frame_period
-//   current_time
-//   fractional_time_shift
-//   fs
+ * @param current_time                           - Coarse time [sec] of frame's pulse
+ * @param fractional_time_shift                  - Time shift [sec] of frame's pulse from `current_time`
+ * @param fs                                     - Sampling rate
 //   forward_real_fft
 //   inverse_real_fft
 //   minimum_phase
 //   dc_remover
-//   response :: double[fft_size] - Output, 
-//-----------------------------------------------------------------------------
+ * @param response              :: (T=fft_size,) - Output waveform fragment, size is already defined by caller
+ * randn_state
+ */
 static void GetOneFrameSegment(double current_vuv, int noise_size,
     const double * const *spectrogram, int fft_size,
     const double * const *aperiodicity, int f0_length, double frame_period,
@@ -225,10 +247,10 @@ static void GetOneFrameSegment(double current_vuv, int noise_size,
     double *response, RandnState* randn_state) {
 
   // Initialization
-  double *aperiodic_response = new double[fft_size];
-  double *periodic_response  = new double[fft_size];
+  double *aperiodic_response = new double[fft_size]; // waveform of an aperiodic fragment
+  double *periodic_response  = new double[fft_size]; // waveform of a   periodic fragment
   double *spectral_envelope  = new double[fft_size];
-  double *aperiodic_ratio    = new double[fft_size];
+  double *aperiodic_ratio    = new double[fft_size]; // Aperiodity spectrum at pulse position
 
   GetSpectralEnvelope(current_time, frame_period, f0_length, spectrogram, fft_size, spectral_envelope);
   GetAperiodicRatio(current_time, frame_period, f0_length, aperiodicity, fft_size, aperiodic_ratio);
@@ -245,6 +267,7 @@ static void GetOneFrameSegment(double current_vuv, int noise_size,
       inverse_real_fft, minimum_phase, aperiodic_response, randn_state);
 
   double sqrt_noise_size = sqrt(static_cast<double>(noise_size));
+  // Update all elements of the waveform with normalization
   for (int i = 0; i < fft_size; ++i)
     response[i] = (periodic_response[i] * sqrt_noise_size + aperiodic_response[i]) / fft_size;
 
@@ -256,58 +279,63 @@ static void GetOneFrameSegment(double current_vuv, int noise_size,
 }
 
 
-//-----------------------------------------------------------------------------
-// Args:
-//   f0               - Raw fo series,                       frame-scale
-//   f0_length        - Length of f0 series [frame]
-//   fs               - Sampling frequency
-//   y_length         - Length of sample series [sample]
-//   frame_period     - Period of a frame [sec]
-//   lowest_f0        - fo under which judged as Unvoiced (fo=0)
-//   time_axis        - Output, times of data-points,       sample-scale, [0/fs, 1/fs, 2/fs, ..., (L-1)/fs]
-//   coarse_time_axis - Output, times of frame data-points,  frame-scale, [0*frm, 1*frm, 2*frm, ..., (M-1)*frm]
-//   coarse_f0        - Output, fo series,                   frame-scale
-//   coarse_vuv       - Output, VUV flag series (0.0|1.0),   frame-scale
-//-----------------------------------------------------------------------------
+/**
+ * Generate time axis, floored fo contour and VUV series.
+ *
+ * @param f0               :: (L=f0_length,)   - Frame fo contour
+ * @param f0_length                            - Length of `f0`
+ * @param fs                                   - Sampling rate
+ * @param y_length                             - Length of the waveform
+ * @param frame_period                         - Period of a frame [sec]
+ * @param lowest_f0                            - fo under which judged as Unvoiced (fo=0)
+ * @param time_axis        :: (T=y_length,)    - Output, times of data-points. The value is `i/fs`.
+ * @param coarse_time_axis :: (L=f0_length+1,) - Output, times of frame data-points. The value is `i*frame_period`.
+ * @param coarse_f0        :: (L=f0_length+1,) - Output, floored frame fo contour
+ * @param coarse_vuv       :: (L=f0_length+1,) - Output, frame VUV series (0.0|1.0)
+ */
 static void GetTemporalParametersForTimeBase(const double *f0, int f0_length,
     int fs, int y_length, double frame_period, double lowest_f0, double *time_axis, double *coarse_time_axis, double *coarse_f0, double *coarse_vuv) {
 
-  // sample time axis
   for (int i = 0; i < y_length; ++i)
     time_axis[i] = i / static_cast<double>(fs);
 
-  // the array 'coarse_time_axis' is supposed to have 'f0_length + 1' positions
   for (int i = 0; i < f0_length; ++i) {
     // frame time axis
     coarse_time_axis[i] = i * frame_period;
-    // floor-ed fo series
+    // floored fo contour
     coarse_f0[i] = f0[i] < lowest_f0 ? 0.0 : f0[i];
     // VUV flag series
     coarse_vuv[i] = coarse_f0[i] == 0.0 ? 0.0 : 1.0;
   }
-
-  // Store info in additional space (tail)
+  // Tail values for interpolation
   coarse_time_axis[f0_length] = f0_length * frame_period;
   coarse_f0[f0_length]  =  coarse_f0[f0_length - 1] * 2 -  coarse_f0[f0_length - 2];
   coarse_vuv[f0_length] = coarse_vuv[f0_length - 1] * 2 - coarse_vuv[f0_length - 2];
 }
 
-//-----------------------------------------------------------------------------
-// Args:
-//   interpolated_f0
-//   time_axis                  - Output, times of data-points,              [0/fs, 1/fs, 2/fs, ..., (L-1)/fs]
-//   pulse_locations            - Times of pulse sample [sec],          e.g. [30/fs, 80/fs, 110fs, ...]
-//   pulse_locations_index      - Indice of pulse sample in time axis,  e.g. [30,    80,    110,   ...]
-//   pulse_locations_time_shift - Shift for exact pulse position [sec], e.g. [0.001, 0.003, 0.000, ...]
-//-----------------------------------------------------------------------------
+
+/**
+ * Calculate pulse position from instantaneous fo.
+ *
+ * @param interpolated_f0             :: (T=y_length,) - Instantaneous fo series
+ * @param time_axis                   :: (T=y_length,) - times of data-points. [0/fs, 1/fs, 2/fs, ..., (L-1)/fs]
+ * @param y_length                                     - Length of the waveform
+ * @param fs                                           - Sampling rate
+ * @param pulse_locations             :: (T=y_length)  - Output, Times of pulse sample [sec],          e.g. [30/fs, 80/fs, 110/fs, ...]
+ * @param pulse_locations_index       :: (T=y_length)  - Output, Indice of pulse sample,               e.g. [30,    80,    110,    ...]
+ * @param pulse_locations_time_shift  :: (T=y_length)  - Output, Shift for exact pulse position [sec], e.g. [0.001, 0.003, 0.000,  ...]
+ *
+ * @return                                             - The number of pulses, equal to effective length of `pulse_locations*`
+ */
 static int GetPulseLocationsForTimeBase(const double *interpolated_f0,
     const double *time_axis, int y_length, int fs, double *pulse_locations, int *pulse_locations_index, double *pulse_locations_time_shift) {
 
   // Initialization
-  double *total_phase    = new double[y_length];
-  double *wrap_phase     = new double[y_length];
-  double *wrap_phase_abs = new double[y_length - 1];
+  double *total_phase    = new double[y_length]; // Accumulation of phase progression
+  double *wrap_phase     = new double[y_length]; // Wrapped `total_phase`
+  double *wrap_phase_abs = new double[y_length - 1]; // Wrapped-Phase difference between samples
 
+  // Instantaneous frequency to φ(t)
   total_phase[0] = 2.0 * world::kPi * interpolated_f0[0] / fs;
   wrap_phase[0] = fmod(total_phase[0], 2.0 * world::kPi);
   for (int i = 1; i < y_length; ++i) {
@@ -349,39 +377,38 @@ static int GetPulseLocationsForTimeBase(const double *interpolated_f0,
 }
 
 
-//-----------------------------------------------------------------------------
-// Generate excitation-related series.
-//
-// Args:
-//   f0
-//   f0_length
-//   fs
-//   frame_period               - Period of a frame [sec]
-//   y_length                   - Length of sample series [sample]
-//   lowest_f0
-//   pulse_locations            - Output
-//   pulse_locations_index      - Output
-//   pulse_locations_time_shift - Output
-//   interpolated_vuv           - Output
-// Returns:
-//   number_of_pulses           - Total number of pulses
-//-----------------------------------------------------------------------------
+/**
+ * Generate excitation pulses and UVUs.
+ *
+ * @param f0                         :: (L=f0_length,) - Frame fo contour
+ * @param f0_length                                    - Length of `f0`
+ * @param fs                                           - Sampling rate
+ * @param frame_period                                 - Period of a frame [sec]
+ * @param y_length                                     - Length of the waveform
+ * @param lowest_f0                                    - fo under which judged as Unvoiced (fo=0)
+ * @param pulse_locations            :: (T=y_length)   - Output, Times of pulse sample [sec],          e.g. [30/fs, 80/fs, 110fs, ...]
+ * @param pulse_locations_index      :: (T=y_length)   - Output, Indice of pulse sample in time axis,  e.g. [30,    80,    110,   ...]
+ * @param pulse_locations_time_shift :: (T=y_length)   - Output, Shift for exact pulse position [sec], e.g. [0.001, 0.003, 0.000, ...]
+ * @param interpolated_vuv           :: (T=y_length)   - Output, sample-wise VUV series
+ *
+ * @return                                             - The number of pulses, equal to effective length of `pulse_locations*`
+ */
 static int GetTimeBase(const double *f0, int f0_length, int fs, double frame_period, int y_length, double lowest_f0,
     double *pulse_locations, int *pulse_locations_index, double *pulse_locations_time_shift, double *interpolated_vuv) {
 
   // Initialization
-  double *time_axis        = new double[y_length];      // time_axis - Output, times of data-points, [0/fs, 1/fs, 2/fs, ..., (L-1)/fs]
-  double *coarse_time_axis = new double[f0_length + 1];
-  double *coarse_f0        = new double[f0_length + 1];
-  double *coarse_vuv       = new double[f0_length + 1];
-  double *interpolated_f0  = new double[y_length];
+  double *time_axis        = new double[y_length];      // times of data-points. [0/fs, 1/fs, 2/fs, ..., (L-1)/fs]
+  double *coarse_time_axis = new double[f0_length + 1]; // times of frame data-points. [0*frame_period, 1*frame_period, ...,]
+  double *coarse_f0        = new double[f0_length + 1]; // Floored frame fo contour
+  double *coarse_vuv       = new double[f0_length + 1]; // Frame VUV series (0.0|1.0)
+  double *interpolated_f0  = new double[y_length];      // Instantaneous fo series
 
-  // f0 to serieses
   GetTemporalParametersForTimeBase(f0, f0_length, fs, y_length, frame_period, lowest_f0, time_axis, coarse_time_axis, coarse_f0, coarse_vuv);
-  // Upsampling - frame scale to sample scale
+
+  // Upsample from frame scale to sample scale
   interp1(coarse_time_axis, coarse_f0,  f0_length + 1, time_axis, y_length, interpolated_f0);
   interp1(coarse_time_axis, coarse_vuv, f0_length + 1, time_axis, y_length, interpolated_vuv);
-  // VUV flag-nize & fo_uv = default
+  // Correct interpolated values
   for (int i = 0; i < y_length; ++i) {
     interpolated_vuv[i] = interpolated_vuv[i] > 0.5  ?               1.0 : 0.0;
     interpolated_f0[i]  = interpolated_vuv[i] == 0.0 ? world::kDefaultF0 : interpolated_f0[i];
@@ -399,6 +426,7 @@ static int GetTimeBase(const double *f0, int f0_length, int fs, double frame_per
   return number_of_pulses;
 }
 
+
 static void GetDCRemover(int fft_size, double *dc_remover) {
   double dc_component = 0.0;
   for (int i = 0; i < fft_size / 2; ++i) {
@@ -415,25 +443,19 @@ static void GetDCRemover(int fft_size, double *dc_remover) {
 
 }  // namespace
 
-// from header
-//-----------------------------------------------------------------------------
-// Synthesize a speech with Harmonic+Noise model.
-// Harmonic (periodic) component is synthesized with pulse-train excitation with FIR filter.
-// Nois  e (aperiodic) component is synthesized with X           excitation with FIR filter.
-//
-// Input:
-//   f0                   : f0 contour
-//   f0_length            : Length of f0
-//   spectrogram          : Spectrogram estimated by CheapTrick
-//   fft_size             : FFT size
-//   aperiodicity         : Aperiodicity spectrogram based on D4C
-//   frame_period         : Temporal period used for the analysis [msec]
-//   fs                   : Sampling frequency
-//   y_length             : Length of the output signal (Memory of y has been
-//                          allocated in advance)
-// Output:
-//   y                    : Calculated speech
-//-----------------------------------------------------------------------------
+/**
+ * Synthesize a speech with pitch-synchronous impulse and noise FIR filtering.
+ *
+ * @param f0           :: (L=f0_length,) - Frame fo contour
+ * @param f0_length                      - Length of the `f0`
+//   spectrogram                         - Spectrogram estimated by CheapTrick
+//   aperiodicity                        - Aperiodicity spectrogram based on D4C
+//   fft_size                            - FFT size
+ * @param frame_period                   - Period of a frame, synced with analysis [msec]
+ * @param fs                             - Sampling rate
+ * @param y_length                       - Length of the waveform `y`
+ * @param y            :: (T=y_length,)  - Generated waveform
+ */
 void Synthesis(const double *f0, int f0_length,
     const double * const *spectrogram, const double * const *aperiodicity,
     int fft_size, double frame_period, int fs, int y_length, double *y) {
@@ -449,11 +471,13 @@ void Synthesis(const double *f0, int f0_length,
   InitializeInverseRealFFT(fft_size, &inverse_real_fft);
   ForwardRealFFT forward_real_fft = {0};
   InitializeForwardRealFFT(fft_size, &forward_real_fft);
-  double *pulse_locations            = new double[y_length];
-  int    *pulse_locations_index      = new    int[y_length];
-  double *pulse_locations_time_shift = new double[y_length];
-  double *interpolated_vuv           = new double[y_length];
+  double *pulse_locations            = new double[y_length]; // Times of pulse sample [sec],          effective length is `number_of_pulses`. e.g. [30/fs, 80/fs, 110fs, ...]
+  int    *pulse_locations_index      = new    int[y_length]; // Indice of pulse sample in time axis,  effective length is `number_of_pulses`. e.g. [30,    80,    110,   ...]
+  double *pulse_locations_time_shift = new double[y_length]; // Shift for exact pulse position [sec], effective length is `number_of_pulses`. e.g. [0.001, 0.003, 0.000, ...]
+  double *interpolated_vuv           = new double[y_length]; // Sample-wise VUV series
 
+  // Calculate impulses and VUV
+  // lowest_f0 is inverse of frame period
   int number_of_pulses = GetTimeBase(f0, f0_length, fs, frame_period / 1000.0,
       y_length, fs / fft_size + 1.0, pulse_locations, pulse_locations_index, pulse_locations_time_shift, interpolated_vuv);
 
@@ -461,22 +485,23 @@ void Synthesis(const double *f0, int f0_length,
   GetDCRemover(fft_size, dc_remover);
 
   frame_period /= 1000.0; // [msec] -> [sec]
-  int noise_size;
-  int offset, lower_limit, upper_limit;
+  int noise_size; // [sample]
+  int offset; // offset length [sample] of overlap-add
+  int lower_limit, upper_limit;
   for (int i = 0; i < number_of_pulses; ++i) {
-    // inter-pulse length
+
+    // Generate a periodic finite impulse response and a corresponding aperiodic waveform
+    // Set noise_size as inter-pulse length
     noise_size = pulse_locations_index[MyMinInt(number_of_pulses - 1, i + 1)] - pulse_locations_index[i];
-    // Fragment synthesis
-    //// impulse_response - Periodic FIR (== signal excited by pulse) + Aperiodic FIR-ed signal
     GetOneFrameSegment(interpolated_vuv[pulse_locations_index[i]], noise_size,
         spectrogram, fft_size, aperiodicity, f0_length, frame_period,
         pulse_locations[i], pulse_locations_time_shift[i], fs,
         &forward_real_fft, &inverse_real_fft, &minimum_phase, dc_remover,
-    // Waveform synthesis by PSOLA
-    //// In middle region, add impulse_response (len==fft_size) around the pulse position
-    //// In head/tail region, use only needed length
         impulse_response, &randn_state);
+
+    // Add the impulse response to the whole waveform (Overlap-Add)
     offset = pulse_locations_index[i] - fft_size / 2 + 1;
+    // Clip out of range
     lower_limit = MyMaxInt(0, -offset); // >=0
     upper_limit = MyMinInt(fft_size, y_length - offset); // <=fft_size
     for (int j = lower_limit; j < upper_limit; ++j) {
