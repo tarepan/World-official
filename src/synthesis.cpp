@@ -21,12 +21,11 @@ namespace {
  * Synthesize a white noise as frequency-domain representation.
  *
  * @param noise_size       - Length [sample] of noise
- * @param fft_size         - Filter FFT size
- * @param forward_real_fft - Output, FFT container containing the noise
+ * @param fft_size         - Analysis/Synthesis FFT size
+ * @param forward_real_fft - Output, FFT container containing the white noise
  * @param randn_state      - Random state
  */
-static void GetNoiseSpectrum(int noise_size, int fft_size,
-    const ForwardRealFFT *forward_real_fft, RandnState *randn_state) {
+static void GetNoiseSpectrum(int noise_size, int fft_size, const ForwardRealFFT *forward_real_fft, RandnState *randn_state) {
   // Generate white noise with uint random number
   double average = 0.0;
   for (int i = 0; i < noise_size; ++i) {
@@ -51,27 +50,24 @@ static void GetNoiseSpectrum(int noise_size, int fft_size,
 /**
  * Synthesize an aperiodic component (colored noise series).
  *
- * noise_size
- * fft_size
- * @param spectrum         :: (L=fft_size,) - 
- * aperiodic_ratio
- * current_vuv
- * @param forward_real_fft                   -  FFT container
- * @param inverse_real_fft                   - iFFT container
- * minimum_phase
- * @param aperiodic_response :: (T=fft_size) - Output, 
- * @param randn_state                        - Random state
+ * @param noise_size                          - Length [sample] of noise
+ * @param fft_size                            - Analysis/Synthesis FFT size
+ * @param spectrum           :: (F=fft_size,) - Spectrum
+ * @param aperiodic_ratio    :: (F=fft_size,) - Aperiodity spectrum
+ * @param current_vuv                         - VUV of the frame
+ * @param forward_real_fft                    - FFT  container
+ * @param inverse_real_fft                    - iFFT container
+ * @param minimum_phase                       - MinPhase container
+ * @param aperiodic_response :: (T=fft_size,) - Output, waveform of an aperiodic fragment
+ * @param randn_state                         - Random state
  */
-static void GetAperiodicResponse(int noise_size, int fft_size,
-    const double *spectrum, const double *aperiodic_ratio, double current_vuv,
-    const ForwardRealFFT *forward_real_fft,
-    const InverseRealFFT *inverse_real_fft,
-    const MinimumPhaseAnalysis *minimum_phase, double *aperiodic_response,
-    RandnState *randn_state) {
+static void GetAperiodicResponse(int noise_size, int fft_size, const double *spectrum, const double *aperiodic_ratio, double current_vuv,
+    const ForwardRealFFT *forward_real_fft, const InverseRealFFT *inverse_real_fft,
+    const MinimumPhaseAnalysis *minimum_phase, double *aperiodic_response, RandnState *randn_state) {
   // Generate a white noise spectrum
   GetNoiseSpectrum(noise_size, fft_size, forward_real_fft, randn_state);
 
-  // |H(ω)| to minimum phase H(ω)
+  // |H(ω)| to |H_a(ω)| to minimum phase H_a(ω)
   if (current_vuv != 0.0)
     for (int i = 0; i <= minimum_phase->fft_size / 2; ++i)
       minimum_phase->log_spectrum[i] = log(spectrum[i] * aperiodic_ratio[i]) / 2.0;
@@ -127,14 +123,14 @@ static void GetSpectrumWithFractionalTimeShift(int fft_size,
 /**
  * Generate waveform segment (= impulse response) of periodic component.
  *
- * @param fft_size                               - FFT size, equal to the length of waveform fragment
- * @param spectrum              :: (F=fft_size,)
- * @param aperiodic_ratio       :: (F=fft_size,) - Aperiodity spectrum at pulse position
+ * @param fft_size                               - Analysis/Synthesis FFT size
+ * @param spectrum              :: (F=fft_size,) - Spectrum
+ * @param aperiodic_ratio       :: (F=fft_size,) - Aperiodity spectrum
  * @param current_vuv                            - Voice/UnVoice ratio of this waveform segment
- * @param inverse_real_fft
- * @param minimum_phase
+ * @param inverse_real_fft                       - iFFT container
+ * @param minimum_phase                          - MinPhase container
  * @param dc_remover
- * @param fractional_time_shift
+ * @param fractional_time_shift                  - Time shift [sec] of frame's pulse from coarse time
  * @param fs                                     - Sampling rate
  * @param periodic_response     :: (T=fft_size,) - Output waveform segment, size is defined by caller
  */
@@ -147,7 +143,7 @@ static void GetPeriodicResponse(int fft_size, const double *spectrum, const doub
     return;
   }
 
-  // |H(ω)| to minimum phase H(ω)
+  // |H(ω)| to |H_p(ω)| to minimum phase H_p(ω)
   for (int i = 0; i <= minimum_phase->fft_size / 2; ++i)
     minimum_phase->log_spectrum[i] = log(spectrum[i] * (1.0 - aperiodic_ratio[i]) + world::kMySafeGuardMinimum) / 2.0;
   GetMinimumPhaseSpectrum(minimum_phase);
@@ -168,16 +164,22 @@ static void GetPeriodicResponse(int fft_size, const double *spectrum, const doub
 
 
 /**
- * 
- * @param spectrogram :: (L, F=1+fft_size//2) -
- * @param fft_size                            - FFT size of `spectrogram`
- * @param spectral_envelope :: (L=fft_size,)  - Output, 
+ * Calculate spectrum at pulse position.
+ *
+ * @param current_time                             - Coarse time [sec] of frame's pulse
+ * @param frame_period                             - Period [sec] of the frame
+ * @param f0_length                                - Length of frame fo contour
+ * @param spectrogram       :: (L, F=fft_size/2+1) - Spectrogram
+ * @param fft_size                                 - Analysis/Synthesis FFT size
+ * @param spectral_envelope :: (F=fft_size,)       - Output, spectrum at pulse position
  */
 static void GetSpectralEnvelope(double current_time, double frame_period, int f0_length, const double * const *spectrogram, int fft_size, double *spectral_envelope) {
+  // Frame numbers
   int current_frame_floor = MyMinInt(f0_length - 1, static_cast<int>(floor(current_time / frame_period)));
   int current_frame_ceil  = MyMinInt(f0_length - 1, static_cast<int>( ceil(current_time / frame_period)));
-  double interpolation = current_time / frame_period - current_frame_floor;
 
+  // Interpolate spectrums in time
+  double interpolation = current_time / frame_period - current_frame_floor;
   if (current_frame_floor == current_frame_ceil)
     for (int i = 0; i <= fft_size / 2; ++i)
       spectral_envelope[i] = fabs(spectrogram[current_frame_floor][i]);
@@ -193,13 +195,11 @@ static void GetSpectralEnvelope(double current_time, double frame_period, int f0
  * @param current_time                        - Coarse time [sec] of frame's pulse
  * @param frame_period                        - Period [sec] of the frame
  * @param f0_length                           - Length of frame fo contour
- * @param aperiodicity       :: (L, F=)       - Aperiodicity series
- * @param fft_size                            - FFT size
+ * @param aperiodicity :: (L, F=fft_size/2+1) - Aperiodicity spectrogram
+ * @param fft_size                            - Analysis/Synthesis FFT size
  * @param aperiodic_spectrum :: (F=fft_size,) - Output, aperiodicity spectrum at pulse position
  */
-static void GetAperiodicRatio(double current_time, double frame_period,
-    int f0_length, const double * const *aperiodicity, int fft_size,
-    double *aperiodic_spectrum) {
+static void GetAperiodicRatio(double current_time, double frame_period, int f0_length, const double * const *aperiodicity, int fft_size, double *aperiodic_spectrum) {
   // Frame numbers
   int current_frame_floor = MyMinInt(f0_length - 1, static_cast<int>(floor(current_time / frame_period)));
   int current_frame_ceil  = MyMinInt(f0_length - 1, static_cast<int>( ceil(current_time / frame_period)));
@@ -220,54 +220,44 @@ static void GetAperiodicRatio(double current_time, double frame_period,
 /**
  * Calculates a periodic and aperiodic response at a time.
  *
- * @param current_vuv                            - VUV flag of the frame
-//   noise_size
-//   spectrogram
-//   fft_size                - Equal to segment length
-//   aperiodicity
-//   f0_length                                  
-//   frame_period
- * @param current_time                           - Coarse time [sec] of frame's pulse
- * @param fractional_time_shift                  - Time shift [sec] of frame's pulse from `current_time`
- * @param fs                                     - Sampling rate
-//   forward_real_fft
-//   inverse_real_fft
-//   minimum_phase
-//   dc_remover
- * @param response              :: (T=fft_size,) - Output waveform fragment, size is already defined by caller
- * randn_state
+ * @param current_vuv                                  - VUV flag of the frame
+ * @param noise_size                                   - Length [sample] of noise
+ * @param spectrogram           :: (L, F=fft_size/2+1) - Spectrogram
+ * @param fft_size                                     - Analysis/Synthesis FFT size
+ * @param aperiodicity          :: (L, F=fft_size/2+1) - Aperiodicity spectrogram
+ * @param f0_length                                    - Length of frame fo contour
+ * @param frame_period                                 - Period [sec] of the frame
+ * @param current_time                                 - Coarse time [sec] of frame's pulse
+ * @param fractional_time_shift                        - Time shift [sec] of frame's pulse from `current_time`
+ * @param fs                                           - Sampling rate
+ * @param forward_real_fft                             -  FFT container
+ * @param inverse_real_fft                             - iFFT container
+ * @param minimum_phase                                - MinPhase container
+ * @param dc_remover
+ * @param response              :: (T=fft_size,)       - Output waveform fragment, size is already defined by caller
+ * @param randn_state                                  - Random state
  */
 static void GetOneFrameSegment(double current_vuv, int noise_size,
-    const double * const *spectrogram, int fft_size,
-    const double * const *aperiodicity, int f0_length, double frame_period,
-    double current_time, double fractional_time_shift, int fs,
-    const ForwardRealFFT *forward_real_fft,
-    const InverseRealFFT *inverse_real_fft,
-    const MinimumPhaseAnalysis *minimum_phase, const double *dc_remover,
-    double *response, RandnState* randn_state) {
+    const double * const *spectrogram, int fft_size, const double * const *aperiodicity, int f0_length, double frame_period,
+    double current_time, double fractional_time_shift, int fs, const ForwardRealFFT *forward_real_fft, const InverseRealFFT *inverse_real_fft,
+    const MinimumPhaseAnalysis *minimum_phase, const double *dc_remover, double *response, RandnState* randn_state) {
 
-  // Initialization
+  // Initialize
   double *aperiodic_response = new double[fft_size]; // waveform of an aperiodic fragment
   double *periodic_response  = new double[fft_size]; // waveform of a   periodic fragment
-  double *spectral_envelope  = new double[fft_size];
+  double *spectral_envelope  = new double[fft_size]; // Spectrum            at pulse position
   double *aperiodic_ratio    = new double[fft_size]; // Aperiodity spectrum at pulse position
 
-  GetSpectralEnvelope(current_time, frame_period, f0_length, spectrogram, fft_size, spectral_envelope);
-  GetAperiodicRatio(current_time, frame_period, f0_length, aperiodicity, fft_size, aperiodic_ratio);
+  // Interpolate spectrums in time
+  GetSpectralEnvelope(current_time, frame_period, f0_length, spectrogram,  fft_size, spectral_envelope);
+  GetAperiodicRatio(  current_time, frame_period, f0_length, aperiodicity, fft_size, aperiodic_ratio);
 
-  // Generation of periodic component's FIR
-  GetPeriodicResponse(
-      fft_size, spectral_envelope, aperiodic_ratio, current_vuv,
-                        inverse_real_fft, minimum_phase,
-      dc_remover, fractional_time_shift, fs, periodic_response);
+  // Synthesize impulses
+  GetPeriodicResponse(fft_size, spectral_envelope, aperiodic_ratio, current_vuv, inverse_real_fft, minimum_phase, dc_remover, fractional_time_shift, fs, periodic_response);
+  GetAperiodicResponse(noise_size, fft_size, spectral_envelope, aperiodic_ratio, current_vuv, forward_real_fft, inverse_real_fft, minimum_phase, aperiodic_response, randn_state);
 
-  // Synthesis of the aperiodic response
-  GetAperiodicResponse(noise_size, fft_size, spectral_envelope,
-      aperiodic_ratio, current_vuv, forward_real_fft,
-      inverse_real_fft, minimum_phase, aperiodic_response, randn_state);
-
-  double sqrt_noise_size = sqrt(static_cast<double>(noise_size));
   // Update all elements of the waveform with normalization
+  double sqrt_noise_size = sqrt(static_cast<double>(noise_size));
   for (int i = 0; i < fft_size; ++i)
     response[i] = (periodic_response[i] * sqrt_noise_size + aperiodic_response[i]) / fft_size;
 
@@ -446,15 +436,15 @@ static void GetDCRemover(int fft_size, double *dc_remover) {
 /**
  * Synthesize a speech with pitch-synchronous impulse and noise FIR filtering.
  *
- * @param f0           :: (L=f0_length,) - Frame fo contour
- * @param f0_length                      - Length of the `f0`
-//   spectrogram                         - Spectrogram estimated by CheapTrick
-//   aperiodicity                        - Aperiodicity spectrogram based on D4C
-//   fft_size                            - FFT size
- * @param frame_period                   - Period of a frame, synced with analysis [msec]
- * @param fs                             - Sampling rate
- * @param y_length                       - Length of the waveform `y`
- * @param y            :: (T=y_length,)  - Generated waveform
+ * @param f0           :: (L=f0_length,)      - Frame fo contour
+ * @param f0_length                           - Length of the `f0`
+ * @param spectrogram  :: (L, F=fft_size/2+1) - Spectrogram
+ * @param aperiodicity :: (L, F=fft_size/2+1) - Aperiodicity spectrogram
+ * @param fft_size                            - Analysis/Synthesis FFT size
+ * @param frame_period                        - Period of a frame, synced with analysis [msec]
+ * @param fs                                  - Sampling rate
+ * @param y_length                            - Length of the waveform `y`
+ * @param y            :: (T=y_length,)       - Generated waveform
  */
 void Synthesis(const double *f0, int f0_length,
     const double * const *spectrogram, const double * const *aperiodicity,
@@ -463,21 +453,25 @@ void Synthesis(const double *f0, int f0_length,
   randn_reseed(&randn_state);
 
   // Initialization
-  double *impulse_response = new double[fft_size];
+  double *impulse_response = new double[fft_size]; // waveform segment corresponding to a pulse
   for (int i = 0; i < y_length; ++i) y[i] = 0.0;
+  //// MinPhase container
   MinimumPhaseAnalysis minimum_phase = {0};
   InitializeMinimumPhaseAnalysis(fft_size, &minimum_phase);
+  //// iFFT container
   InverseRealFFT inverse_real_fft = {0};
   InitializeInverseRealFFT(fft_size, &inverse_real_fft);
+  //// FFT container
   ForwardRealFFT forward_real_fft = {0};
   InitializeForwardRealFFT(fft_size, &forward_real_fft);
+  //// Impulse and VUV
   double *pulse_locations            = new double[y_length]; // Times of pulse sample [sec],          effective length is `number_of_pulses`. e.g. [30/fs, 80/fs, 110fs, ...]
   int    *pulse_locations_index      = new    int[y_length]; // Indice of pulse sample in time axis,  effective length is `number_of_pulses`. e.g. [30,    80,    110,   ...]
   double *pulse_locations_time_shift = new double[y_length]; // Shift for exact pulse position [sec], effective length is `number_of_pulses`. e.g. [0.001, 0.003, 0.000, ...]
   double *interpolated_vuv           = new double[y_length]; // Sample-wise VUV series
 
   // Calculate impulses and VUV
-  // lowest_f0 is inverse of frame period
+  // `lowest_f0` is based on analysis/synthesis FFT size
   int number_of_pulses = GetTimeBase(f0, f0_length, fs, frame_period / 1000.0,
       y_length, fs / fft_size + 1.0, pulse_locations, pulse_locations_index, pulse_locations_time_shift, interpolated_vuv);
 
