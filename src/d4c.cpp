@@ -194,35 +194,65 @@ static void GetCoarseAperiodicity(const double *static_group_delay, int fs, int 
   delete[] power_spectrum;
 }
 
+
+/**
+ * Calculate power ratio of 100~4000Hz and 100~7900Hz.
+ *
+ * @param x                  :: (T=x_length,) - Waveform
+ * @param fs                                  - Sampling frequency
+ * @param x_length                            - Length of `x`
+ * @param current_f0                          - fo
+ *        current_position
+ * @param f0_length                           - (Not used)
+ *        fft_size
+ * @param boundary0                           - Corresponding to  100 Hz
+ * @param boundary1                           - Corresponding to 4000 Hz
+ * @param boundary2                           - Corresponding to 7900 Hz
+ * @param forward_real_fft                    - FFT container
+ * @param randn_state                         - Random state
+ *
+ * @return                                    - aperiodicity0
+ */
 static double D4CLoveTrainSub(const double *x, int fs, int x_length, double current_f0, double current_position, int f0_length, int fft_size,
     int boundary0, int boundary1, int boundary2, ForwardRealFFT *forward_real_fft, RandnState *randn_state) {
   double *power_spectrum = new double[fft_size];
 
   int window_length = matlab_round(1.5 * fs / current_f0) * 2 + 1;
   GetWindowedWaveform(x, x_length, fs, current_f0, current_position, world::kBlackman, 3.0, forward_real_fft->waveform, randn_state);
-
   for (int i = window_length; i < fft_size; ++i)
     forward_real_fft->waveform[i] = 0.0;
   fft_execute(forward_real_fft->forward_fft);
 
+  // Cut off too low frequency components
   for (int i = 0; i <= boundary0; ++i) power_spectrum[i] = 0.0;
-  for (int i = boundary0 + 1; i < fft_size / 2 + 1; ++i)
-    power_spectrum[i] =
-    forward_real_fft->spectrum[i][0] * forward_real_fft->spectrum[i][0] +
-    forward_real_fft->spectrum[i][1] * forward_real_fft->spectrum[i][1];
-  for (int i = boundary0; i <= boundary2; ++i)
-    power_spectrum[i] += +power_spectrum[i - 1];
 
+  // Extract power from FFT container
+  for (int i = boundary0 + 1; i < fft_size / 2 + 1; ++i)
+    power_spectrum[i] = forward_real_fft->spectrum[i][0] * forward_real_fft->spectrum[i][0] + forward_real_fft->spectrum[i][1] * forward_real_fft->spectrum[i][1];
+
+  // Cumulatively sum the powers over frequency
+  for (int i = boundary0; i <= boundary2; ++i) power_spectrum[i] += +power_spectrum[i - 1];
+
+  // Calculate power ratio of 100~4000Hz / 100~7900Hz
   double aperiodicity0 = power_spectrum[boundary1] / power_spectrum[boundary2];
+
   delete[] power_spectrum;
+
   return aperiodicity0;
 }
 
-//-----------------------------------------------------------------------------
-// D4CLoveTrain() determines the aperiodicity with VUV detection.
-// If a frame was determined as the unvoiced section, aperiodicity is set to very high value as the safeguard.
-// If it was voiced section, the aperiodicity of 0 Hz is set to -60 dB.
-//-----------------------------------------------------------------------------
+/**
+ * Determines the aperiodicity with VUV detection.
+ *
+ * @param x                  :: (T=x_length,)                 - Waveform
+ * @param fs                                                  - Sampling frequency
+ * @param x_length                                            - Length of `x`
+ * @param f0                 :: (L=f0_length,)                - fo contour
+ * @param f0_length                                           - Length of `f0`
+ *        temporal_positions                                  - Time axis
+ *        aperiodicity0      :: (L=f0_length,)                - Output,
+ * @param randn_state                                         - Random state
+ */
 static void D4CLoveTrain(const double *x, int fs, int x_length, const double *f0, int f0_length, const double *temporal_positions, double *aperiodicity0, RandnState *randn_state) {
   double lowest_f0 = 40.0;
   int fft_size = static_cast<int>(pow(2.0, 1.0 + static_cast<int>(log(3.0 * fs / lowest_f0 + 1) / world::kLog2)));
@@ -238,8 +268,7 @@ static void D4CLoveTrain(const double *x, int fs, int x_length, const double *f0
       aperiodicity0[i] = 0.0;
       continue;
     }
-    aperiodicity0[i] = D4CLoveTrainSub(x, fs, x_length, MyMaxDouble(f0[i], lowest_f0), temporal_positions[i], f0_length,
-        fft_size, boundary0, boundary1, boundary2, &forward_real_fft, randn_state);
+    aperiodicity0[i] = D4CLoveTrainSub(x, fs, x_length, MyMaxDouble(f0[i], lowest_f0), temporal_positions[i], f0_length, fft_size, boundary0, boundary1, boundary2, &forward_real_fft, randn_state);
   }
 
   DestroyForwardRealFFT(&forward_real_fft);
@@ -262,33 +291,64 @@ static void D4CGeneralBody(const double *x, int x_length, int fs, double current
   GetCoarseAperiodicity(static_group_delay, fs, fft_size, number_of_aperiodicities, window, window_length, forward_real_fft, coarse_aperiodicity);
 
   // Revision of the result based on the F0
-  for (int i = 0; i < number_of_aperiodicities; ++i)
-    coarse_aperiodicity[i] = MyMinDouble(0.0, coarse_aperiodicity[i] + (current_f0 - 100) / 50.0);
+  for (int i = 0; i < number_of_aperiodicities; ++i) coarse_aperiodicity[i] = MyMinDouble(0.0, coarse_aperiodicity[i] + (current_f0 - 100) / 50.0);
 
   delete[] static_centroid;
   delete[] smoothed_power_spectrum;
   delete[] static_group_delay;
 }
 
+/**
+ * Initialize aperiodicity spectrogram with `0.999999999999`.
+ *
+ * @param f0_length                                     - Frame length
+ * @param fft_size
+ * @param aperiodicity :: (L=f0_length, F=fft_size/2+1) - Output, initialized aperiodicity spectrogram
+ */
 static void InitializeAperiodicity(int f0_length, int fft_size, double **aperiodicity) {
   for (int i = 0; i < f0_length; ++i)
     for (int j = 0; j < fft_size / 2 + 1; ++j)
       aperiodicity[i][j] = 1.0 - world::kMySafeGuardMinimum;
 }
 
+/**
+ * Get aperiodicity spectrum with linear interpolation over frequencies.
+ *
+ * @param coarse_frequency_axis    :: (F=N_ap+2,)       - Coarse frequency axis in mostly linear scale (linearly 0Hz ~ N_ap*3000 & fixed Nyquist at last)
+ * @param coarse_aperiodicity      :: (F=N_ap+2,)       - Coarse aperiodicity
+ * @param number_of_aperiodicities                      - The number of aperiodicity bands (N_ap)
+ * @param frequency_axis           :: (F=fft_size/2+1,) - Fine frequency axis in linear scale (0 ~ Nyquist)
+ *        fft_size                                      -
+ * @param aperiodicity             :: (F=fft_size/2+1,) - Output, fine aperiodicity spectrum
+ */
 static void GetAperiodicity(const double *coarse_frequency_axis, const double *coarse_aperiodicity, int number_of_aperiodicities,
     const double *frequency_axis, int fft_size, double *aperiodicity) {
+  // Linearly interpolate the aperiodicity
   interp1(coarse_frequency_axis, coarse_aperiodicity, number_of_aperiodicities + 2, frequency_axis, fft_size / 2 + 1, aperiodicity);
-  for (int i = 0; i <= fft_size / 2; ++i)
-    aperiodicity[i] = pow(10.0, aperiodicity[i] / 20.0);
+  // Change scale
+  for (int i = 0; i <= fft_size / 2; ++i) aperiodicity[i] = pow(10.0, aperiodicity[i] / 20.0);
 }
 
 }  // namespace
 
+/**
+ * Estimate band aperiodicity with D4C (with LoveTrain).
+ *
+ * @param x                  :: (T=x_length,)                 - Waveform
+ * @param x_length                                            - Length of `x`
+ * @param fs                                                  - Sampling frequency
+ *        temporal_positions                                  - Time axis
+ * @param f0                 :: (L=f0_length,)                - fo contour
+ * @param f0_length                                           - Length of `f0`
+ * @param fft_size                                            - Number of samples of the aperiodicity in one frame
+ * @param option                                              - D4C threshold option.
+ * @param aperiodicity       :: (L=f0_length, F=fft_size/2+1) - Output, aperiodicity spectrogram
+ */
 void D4C(const double *x, int x_length, int fs, const double *temporal_positions, const double *f0, int f0_length, int fft_size, const D4COption *option, double **aperiodicity) {
   RandnState randn_state = {};
   randn_reseed(&randn_state);
 
+  // NOTE: Set all values to `0.999999999999`
   InitializeAperiodicity(f0_length, fft_size, aperiodicity);
 
   int fft_size_d4c = static_cast<int>(pow(2.0, 1.0 + static_cast<int>(log(4.0 * fs / world::kFloorF0D4C + 1) / world::kLog2)));
@@ -296,6 +356,7 @@ void D4C(const double *x, int x_length, int fs, const double *temporal_positions
   ForwardRealFFT forward_real_fft = {0};
   InitializeForwardRealFFT(fft_size_d4c, &forward_real_fft);
 
+  // The number of aperiodicity bands, equal to `min(15000, Nyquist-3000) / 3000`, so that maximum is 5
   int number_of_aperiodicities = static_cast<int>(MyMinDouble(world::kUpperLimit, fs / 2.0 - world::kFrequencyInterval) / world::kFrequencyInterval);
 
   // Since the window function is common in D4CGeneralBody(), it is designed here to speed up.
@@ -303,28 +364,32 @@ void D4C(const double *x, int x_length, int fs, const double *temporal_positions
   double *window =  new double[window_length];
   NuttallWindow(window_length, window);
 
-  // D4C Love Train (Aperiodicity of 0 Hz is given by the different algorithm)
+  // Determine global aperiodicity (ratio of lower frequency power and whole power)
   double *aperiodicity0 = new double[f0_length];
   D4CLoveTrain(x, fs, x_length, f0, f0_length, temporal_positions, aperiodicity0, &randn_state);
 
+  // Coarse aperiodicity, DC + bands + Nyquist
   double *coarse_aperiodicity = new double[number_of_aperiodicities + 2];
   coarse_aperiodicity[0] = -60.0;
   coarse_aperiodicity[number_of_aperiodicities + 1] =-world::kMySafeGuardMinimum;
+
+  // Coarse frequency axis in mostly linear scale (linearly 0Hz ~ N_aq*3000Hz & fixed Nyquist at last)
   double *coarse_frequency_axis = new double[number_of_aperiodicities + 2];
   for (int i = 0; i <= number_of_aperiodicities; ++i)
     coarse_frequency_axis[i] = i * world::kFrequencyInterval;
   coarse_frequency_axis[number_of_aperiodicities + 1] = fs / 2.0;
 
+  // Fine frequency axis in linear scale (0Hz ~ Nyquist)
   double *frequency_axis = new double[fft_size / 2 + 1];
   for (int i = 0; i <= fft_size / 2; ++i)
     frequency_axis[i] = static_cast<double>(i) * fs / fft_size;
 
   for (int i = 0; i < f0_length; ++i) {
+    // If fo do not exist OR low frequency power ratio is below the threshold, ap is fixed to maximum
     if (f0[i] == 0 || aperiodicity0[i] <= option->threshold) continue;
+
     D4CGeneralBody(x, x_length, fs, MyMaxDouble(world::kFloorF0D4C, f0[i]),
         fft_size_d4c, temporal_positions[i], number_of_aperiodicities, window, window_length, &forward_real_fft, &coarse_aperiodicity[1], &randn_state);
-
-    // Linear interpolation to convert the coarse aperiodicity into its spectral representation.
     GetAperiodicity(coarse_frequency_axis, coarse_aperiodicity, number_of_aperiodicities, frequency_axis, fft_size, aperiodicity[i]);
   }
 
