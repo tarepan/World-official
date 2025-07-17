@@ -66,3 +66,7 @@ In the codec of spectral envelope, you can refer the following reference.
 
 A paper was published to demonstrate that the current version of WORLD was superior to the similar vocoders in the sound quality of re-synthesized speech. This paper also includes the detailed information in the D4C LoveTrain used in the latest version.  
 [9] M. Morise and Y. Watanabe: Sound quality comparison among high-quality vocoders by using re-synthesized speech, Acoust. Sci. & Tech., vol. 39, no. 3, pp. 263-265, May 2018. https://www.jstage.jst.go.jp/article/ast/39/3/39_E1779/_article/-char/en
+
+## Contents
+- `/test/test.cpp`: 引数に応じて Analysis/Resynthesis あるいは Analysis/Modification/Synthesis
+  - `ParameterModification()`: fo scaling & spectrum stretching

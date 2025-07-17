@@ -218,6 +218,14 @@ void AperiodicityEstimation(double *x, int x_length,
   printf("D4C: %d [msec]\n", timeGetTime() - elapsed_time);
 }
 
+/**
+ * Modify WORLD acoustic features if modification parameters are specified through arguments.
+ *
+ * @param argc      - Argument count
+ * @param argv      - Arguments
+ *   @param argv[3] - fo scaling factor
+ *   @param argv[4] - Spectrum streching factor
+ */
 void ParameterModification(int argc, char *argv[], int fs, int f0_length,
     int fft_size, double *f0, double **spectrogram) {
   // F0 scaling
@@ -225,9 +233,10 @@ void ParameterModification(int argc, char *argv[], int fs, int f0_length,
     double shift = atof(argv[3]);
     for (int i = 0; i < f0_length; ++i) f0[i] *= shift;
   }
-  if (argc < 5) return;
 
   // Spectral stretching
+  if (argc < 5) return;
+
   double ratio = atof(argv[4]);
   double *freq_axis1 = new double[fft_size];
   double *freq_axis2 = new double[fft_size];
