@@ -74,8 +74,12 @@ void DCCorrection(const double *input, double f0, int fs, int fft_size,
   delete[] low_frequency_axis;
 }
 
-void LinearSmoothing(const double *input, double width, int fs, int fft_size,
-    double *output) {
+/**
+ *
+ *        fft_size
+ * @param output   - Output, effective size is `fft_size//2+1`
+ */
+void LinearSmoothing(const double *input, double width, int fs, int fft_size, double *output) {
   int boundary = static_cast<int>(width * fft_size / fs) + 1;
 
   // These parameters are set by the other function.

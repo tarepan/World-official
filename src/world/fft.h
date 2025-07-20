@@ -18,7 +18,7 @@ WORLD_BEGIN_C_DECLS
 #define FFT_BACKWARD 2
 #define FFT_ESTIMATE 3
 
-// Complex number for FFT
+// Complex number for FFT (Maybe `a` and `b` of complex number `a + bi` ?)
 typedef double fft_complex[2];
 // Struct used for FFT
 typedef struct {
