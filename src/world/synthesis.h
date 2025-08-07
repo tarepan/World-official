@@ -19,7 +19,6 @@ WORLD_BEGIN_C_DECLS
 //   f0_length            : Length of f0
 //   spectrogram          : Spectrogram estimated by CheapTrick
 //   fft_size             : FFT size
-//   aperiodicity         : Aperiodicity spectrogram based on D4C
 //   frame_period         : Temporal period used for the analysis
 //   fs                   : Sampling frequency
 //   y_length             : Length of the output signal (Memory of y has been
@@ -27,9 +26,7 @@ WORLD_BEGIN_C_DECLS
 // Output:
 //   y                    : Calculated speech
 //-----------------------------------------------------------------------------
-void Synthesis(const double *f0, int f0_length, 
-    const double * const *spectrogram, const double * const *aperiodicity, 
-    int fft_size, double frame_period, int fs, int y_length, double *y);
+void Synthesis(const double *f0, int f0_length, const double * const *spectrogram, int fft_size, double frame_period, int fs, int y_length, double *y);
 
 WORLD_END_C_DECLS
 

@@ -131,8 +131,7 @@ int main(int argc, char **argv) {
   // Synthesis
   int y_length = static_cast<int>(f0_length * frame_period / 1000.0 * fs);
   double *y = new double[y_length];
-  Synthesis(f0, f0_length, spectrogram, aperiodicity, fft_size, frame_period,
-      fs, y_length, y);
+  Synthesis(f0, f0_length, spectrogram, fft_size, frame_period, fs, y_length, y);
 
   // File output
   wavwrite(y, y_length, fs, 16, filename);

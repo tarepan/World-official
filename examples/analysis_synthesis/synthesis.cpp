@@ -99,7 +99,7 @@ namespace {
         // Synthesis by the aperiodicity
         elapsed_time = timeGetTime();
         Synthesis(world_parameters->f0, world_parameters->f0_length,
-                  world_parameters->spectrogram, world_parameters->aperiodicity,
+                  world_parameters->spectrogram,
                   world_parameters->fft_size, world_parameters->frame_period,
                   world_parameters->fs, y_length, y);
 

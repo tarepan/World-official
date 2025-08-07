@@ -273,7 +273,7 @@ void WaveformSynthesis(WorldParameters *world_parameters, int fs,
   printf("\nSynthesis 1 (conventional algorithm)\n");
   elapsed_time = timeGetTime();
   Synthesis(world_parameters->f0, world_parameters->f0_length,
-      world_parameters->spectrogram, world_parameters->aperiodicity,
+      world_parameters->spectrogram,
       world_parameters->fft_size, world_parameters->frame_period, fs,
       y_length, y);
   printf("WORLD: %d [msec]\n", timeGetTime() - elapsed_time);
