@@ -166,6 +166,8 @@ static void GetStaticGroupDelay(const double *static_centroid, const double *smo
 //-----------------------------------------------------------------------------
 // GetCoarseAperiodicity() calculates the aperiodicity in multiples of 3 kHz.
 // The upper limit is given based on the sampling frequency.
+//
+// coarse_aperiodicity :: (F=N_ap+1) ? - Last bin is intact
 //-----------------------------------------------------------------------------
 static void GetCoarseAperiodicity(const double *static_group_delay, int fs, int fft_size, int number_of_aperiodicities, const double *window,
     int window_length, const ForwardRealFFT *forward_real_fft, double *coarse_aperiodicity) {
@@ -175,21 +177,19 @@ static void GetCoarseAperiodicity(const double *static_group_delay, int fs, int 
   for (int i = 0; i < fft_size; ++i) forward_real_fft->waveform[i] = 0.0;
 
   double *power_spectrum = new double[fft_size / 2 + 1];
-  int center;
+  int center; // Index of band center frequency
   for (int i = 0; i < number_of_aperiodicities; ++i) {
     center = static_cast<int>(world::kFrequencyInterval * (i + 1) * fft_size / fs);
-    for (int j = 0; j <= half_window_length * 2; ++j)
-      forward_real_fft->waveform[j] = static_group_delay[center - half_window_length + j] * window[j];
+
+    for (int j = 0; j <= half_window_length * 2; ++j) forward_real_fft->waveform[j] = static_group_delay[center - half_window_length + j] * window[j];
     fft_execute(forward_real_fft->forward_fft);
     for (int j = 0 ; j <= fft_size / 2; ++j)
-      power_spectrum[j] =
-        forward_real_fft->spectrum[j][0] * forward_real_fft->spectrum[j][0] +
-        forward_real_fft->spectrum[j][1] * forward_real_fft->spectrum[j][1];
-    std::sort(power_spectrum, power_spectrum + fft_size / 2 + 1);
-    for (int j = 1 ; j <= fft_size / 2; ++j)
-      power_spectrum[j] += power_spectrum[j - 1];
-    coarse_aperiodicity[i] =
-      10 * log10(power_spectrum[fft_size / 2 - boundary - 1] / power_spectrum[fft_size / 2]);
+      power_spectrum[j] = forward_real_fft->spectrum[j][0] * forward_real_fft->spectrum[j][0] + forward_real_fft->spectrum[j][1] * forward_real_fft->spectrum[j][1];
+
+    // Cumulatively sum the powers + XX + Convert scale from linear-power to dB-power
+    std::sort(power_spectrum, power_spectrum + fft_size / 2 + 1); // NOTE: indexing by pointer
+    for (int j = 1 ; j <= fft_size / 2; ++j) power_spectrum[j] += power_spectrum[j - 1];
+    coarse_aperiodicity[i] = 10 * log10(power_spectrum[fft_size / 2 - boundary - 1] / power_spectrum[fft_size / 2]);
   }
   delete[] power_spectrum;
 }
@@ -278,6 +278,7 @@ static void D4CLoveTrain(const double *x, int fs, int x_length, const double *f0
 // D4CGeneralBody() calculates a spectral envelope at a temporal position. This function is only used in D4C().
 // Caution:
 //   forward_fft is allocated in advance to speed up the processing.
+// coarse_aperiodicity :: (F=N_ap+1,) ? - Coarse aperiodicity, dB-power scale, last bin is intact
 //-----------------------------------------------------------------------------
 static void D4CGeneralBody(const double *x, int x_length, int fs, double current_f0, int fft_size, double current_position,
     int number_of_aperiodicities, const double *window, int window_length, const ForwardRealFFT *forward_real_fft, double *coarse_aperiodicity, RandnState *randn_state) {
@@ -312,20 +313,20 @@ static void InitializeAperiodicity(int f0_length, int fft_size, double **aperiod
 }
 
 /**
- * Get aperiodicity spectrum with linear interpolation over frequencies.
+ * Get linear-amplitude aperiodicity spectrum with linear interpolation over frequencies.
  *
- * @param coarse_frequency_axis    :: (F=N_ap+2,)       - Coarse frequency axis in mostly linear scale (linearly 0Hz ~ N_ap*3000 & fixed Nyquist at last)
- * @param coarse_aperiodicity      :: (F=N_ap+2,)       - Coarse aperiodicity
+ * @param coarse_frequency_axis    :: (F=1+N_ap+1,)     - Coarse frequency axis in mostly linear scale (linearly 0Hz ~ N_ap*3000 & fixed Nyquist at last)
+ * @param coarse_aperiodicity      :: (F=1+N_ap+1,)     - Coarse aperiodicity, dB-power scale
  * @param number_of_aperiodicities                      - The number of aperiodicity bands (N_ap)
  * @param frequency_axis           :: (F=fft_size/2+1,) - Fine frequency axis in linear scale (0 ~ Nyquist)
  *        fft_size                                      -
- * @param aperiodicity             :: (F=fft_size/2+1,) - Output, fine aperiodicity spectrum
+ * @param aperiodicity             :: (F=fft_size/2+1,) - Output fine aperiodicity (linear-amplitude aperiodicity spectrum)
  */
 static void GetAperiodicity(const double *coarse_frequency_axis, const double *coarse_aperiodicity, int number_of_aperiodicities,
     const double *frequency_axis, int fft_size, double *aperiodicity) {
-  // Linearly interpolate the aperiodicity
+  // Linearly interpolate the aperiodicity in dB-power scale
   interp1(coarse_frequency_axis, coarse_aperiodicity, number_of_aperiodicities + 2, frequency_axis, fft_size / 2 + 1, aperiodicity);
-  // Change scale
+  // dB-power scale to linear-amplitude scale
   for (int i = 0; i <= fft_size / 2; ++i) aperiodicity[i] = pow(10.0, aperiodicity[i] / 20.0);
 }
 
@@ -342,13 +343,13 @@ static void GetAperiodicity(const double *coarse_frequency_axis, const double *c
  * @param f0_length                                           - Length of `f0`
  * @param fft_size                                            - Number of samples of the aperiodicity in one frame
  * @param option                                              - D4C threshold option.
- * @param aperiodicity       :: (L=f0_length, F=fft_size/2+1) - Output, aperiodicity spectrogram
+ * @param aperiodicity       :: (L=f0_length, F=fft_size/2+1) - Output, linear-amplitude aperiodicity spectrogram (0 ~ 1)
  */
 void D4C(const double *x, int x_length, int fs, const double *temporal_positions, const double *f0, int f0_length, int fft_size, const D4COption *option, double **aperiodicity) {
   RandnState randn_state = {};
   randn_reseed(&randn_state);
 
-  // NOTE: Set all values to `0.999999999999`
+  // NOTE: Set all values to `0.999999999999` (≒1)
   InitializeAperiodicity(f0_length, fft_size, aperiodicity);
 
   int fft_size_d4c = static_cast<int>(pow(2.0, 1.0 + static_cast<int>(log(4.0 * fs / world::kFloorF0D4C + 1) / world::kLog2)));
@@ -368,10 +369,11 @@ void D4C(const double *x, int x_length, int fs, const double *temporal_positions
   double *aperiodicity0 = new double[f0_length];
   D4CLoveTrain(x, fs, x_length, f0, f0_length, temporal_positions, aperiodicity0, &randn_state);
 
-  // Coarse aperiodicity, DC + bands + Nyquist
+  // Coarse aperiodicity :: (1+N_ap+1,) - DC (-60dB) + bands + Nyquist (≒-0dB) in dB-power scale
   double *coarse_aperiodicity = new double[number_of_aperiodicities + 2];
+  // Fixed values
   coarse_aperiodicity[0] = -60.0;
-  coarse_aperiodicity[number_of_aperiodicities + 1] =-world::kMySafeGuardMinimum;
+  coarse_aperiodicity[number_of_aperiodicities + 1] = -world::kMySafeGuardMinimum;
 
   // Coarse frequency axis in mostly linear scale (linearly 0Hz ~ N_aq*3000Hz & fixed Nyquist at last)
   double *coarse_frequency_axis = new double[number_of_aperiodicities + 2];
@@ -385,7 +387,7 @@ void D4C(const double *x, int x_length, int fs, const double *temporal_positions
     frequency_axis[i] = static_cast<double>(i) * fs / fft_size;
 
   for (int i = 0; i < f0_length; ++i) {
-    // If fo do not exist OR low frequency power ratio is below the threshold, ap is fixed to maximum
+    // If fo do not exist OR low frequency power ratio is below the threshold, ap is fixed to initial value (≒1, maximum)
     if (f0[i] == 0 || aperiodicity0[i] <= option->threshold) continue;
 
     D4CGeneralBody(x, x_length, fs, MyMaxDouble(world::kFloorF0D4C, f0[i]),
